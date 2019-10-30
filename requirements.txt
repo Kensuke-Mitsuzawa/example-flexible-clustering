@@ -1,3 +1,7 @@
 flexible_clustering_tree
 Japanesetokenizer
 jsonlines
+tqdm
+gensim
+scikit-learn
+pandas
