@@ -16,27 +16,37 @@ logging.basicConfig(level=logging.INFO)
 3. 形態素分割結果はjsonlに保存する
 """
 
-MODEL_OBJ = {"file_name": "", "title_morphs": "", "category": "", "morphs": "", "timestamp": "", "url": ""}
+MODEL_OBJ = {"file_name": "", "title": "", "document": "", "title_morphs": "", "category": "", "morphs": "", "timestamp": "", "url": ""}
 mecab_obj = JapaneseTokenizer.MecabWrapper(dictType='ipadic')
+POS_condition = [('名詞', 'サ変接続'), ('名詞', '副詞可能',), ('名詞', '一般'), ('名詞', '固有名詞'), ('動詞', '自立'), ('形容詞', '自立')]
 
 
 def load_liverdoor_corpus(path_text_file: str, file_name: str, category: str):
     f_obj = codecs.open(path_text_file, 'r')
-    url = f_obj.readline().strip()
+    __url = f_obj.readline()
+    url = __url.strip()
     timestamp = f_obj.readline().strip()
     document_title = f_obj.readline().strip()
 
     __morphs = []
+    __document = []
     for t in f_obj.readlines():
-        __morphs += mecab_obj.tokenize(t, is_surface=True, return_list=True)
+        __morphs += [(m_obj.word_stem, m_obj.tuple_pos)
+                     for m_obj in mecab_obj.tokenize(t).filter(pos_condition=POS_condition).tokenized_objects]
+        __document.append(t)
+
+    title_morphs = [(m_obj.word_stem, m_obj.tuple_pos)
+                    for m_obj in mecab_obj.tokenize(document_title).filter(pos_condition=POS_condition).tokenized_objects]
 
     model_obj = copy.deepcopy(MODEL_OBJ)
-    model_obj['title_morphs'] = mecab_obj.tokenize(document_title, is_surface=True, return_list=True)
+    model_obj['title_morphs'] = title_morphs
     model_obj['file_name'] = file_name
     model_obj['category'] = category
     model_obj['morphs'] = __morphs
     model_obj['timestamp'] = timestamp
     model_obj['url'] = url
+    model_obj['title'] = document_title
+    model_obj['document'] = ''.join(__document)
 
     return model_obj
 

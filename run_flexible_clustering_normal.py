@@ -22,8 +22,9 @@ def generate_one_document(input_obj,
                           ) -> Optional[Tuple[str, str, numpy.ndarray, List[str], List[str]]]:
     """１ドキュメント分の情報を生成する"""
     try:
-        vectors = [word_emb_obj.get_vector(w) for w in input_obj['title_morphs'] if w in word_emb_obj.wv.vocab]
+        vectors = [word_emb_obj.get_vector(w[0]) for w in input_obj['title_morphs'] if w[0] in word_emb_obj.wv.vocab]
         if len(vectors) == 0:
+            logging.warning('No token is in word2vec model. title-morphs = {}'.format(input_obj['title_morphs']))
             average_vector = numpy.zeros(word_emb_obj.wv.vector_size)
         else:
             average_vector = numpy.mean(vectors, axis=0)
@@ -31,20 +32,30 @@ def generate_one_document(input_obj,
         logging.error(e)
         return None
     else:
-        return input_obj['file_name'], input_obj['category'], average_vector, input_obj['morphs'], input_obj['title_morphs']
+        __document_morphs = [t[0] for t in input_obj['morphs']]
+        return input_obj['file_name'], input_obj['category'], average_vector, __document_morphs, input_obj['title_morphs']
 
 
-PATH_WORD_EMD_FILE = './text/jawiki.all_vectors.100d.txt'
+def filter_nouns(tokens: List[Tuple[str, Tuple[str, ...]]]) -> List[str]:
+    """名詞のみを取得する"""
+    # [単語, [品詞, 品詞, 品詞]]というリスト構成
+    return [t[0] for t in tokens if t[1][0] == '名詞']
+
+
+PATH_WORD_EMD_FILE = './text/entity_vector.model.bin'  # 日本語wikipedia vectorを利用
 PATH_INPUT_JSONL = './text/processed_data.jsonl'
 PATH_OUTPUT_HTML = './text/output-normal.html'
 
 logging.info('loading word emb file...')
-word_emb_obj = gensim.models.KeyedVectors.load_word2vec_format(PATH_WORD_EMD_FILE)
+word_emb_obj = gensim.models.KeyedVectors.load_word2vec_format(PATH_WORD_EMD_FILE, binary=True, unicode_errors='ignore')
 logging.info('finished loading!')
 
 
 title_vectors = []
+title_text = []
 document_morphs = []
+document_morphs_text_aggregation = []  # 可視化時に名詞だけを集計して表示したい
+document_text = []
 title_morphs = []
 livedoor_labels = []
 livedoor_file_names = []
@@ -55,11 +66,14 @@ with jsonlines.open(PATH_INPUT_JSONL) as reader:
         if t is None:
             continue
         else:
+            title_text.append(record['title'])
+            document_text.append(record['document'])
             livedoor_file_names.append(t[0])
             livedoor_labels.append(t[1])
             document_morphs.append(t[3])
             title_vectors.append(t[2])
             title_morphs.append(t[4])
+            document_morphs_text_aggregation.append(filter_nouns(record['morphs']))
     else:
         pass
 
@@ -84,17 +98,18 @@ multi_matrix_obj = flexible_clustering_tree.MultiFeatureMatrixObject(
     dict_index2label={i: label for i, label in enumerate(livedoor_labels)},
     dict_index2attributes={i: {
         'file_name': livedoor_file_names[i],
-        'document_text': ''.join(document_morphs[i]),
-        'title_text': ''.join(title_morphs[i])
-    } for i, label in enumerate(livedoor_labels)}
+        'document_text': ''.join(document_text[i]),
+        'title_text': ''.join(title_text[i]),
+        'label': livedoor_labels[i]
+    } for i, label in enumerate(livedoor_labels)},
+    text_aggregation_field=document_morphs_text_aggregation
 )
 
 
 from hdbscan import HDBSCAN
 from sklearn.cluster import KMeans
-# clustering_operator_1st = flexible_clustering_tree.ClusteringOperator(level=0, n_cluster=8, instance_clustering=KMeans(n_clusters=8))
-clustering_operator_1st = flexible_clustering_tree.ClusteringOperator(level=0, n_cluster=-1, instance_clustering=HDBSCAN())
-clustering_operator_2nd = flexible_clustering_tree.ClusteringOperator(level=1, n_cluster=-1, instance_clustering=HDBSCAN())
+clustering_operator_1st = flexible_clustering_tree.ClusteringOperator(level=0, n_cluster=-1, instance_clustering=HDBSCAN(min_cluster_size=3))
+clustering_operator_2nd = flexible_clustering_tree.ClusteringOperator(level=1, n_cluster=8, instance_clustering=KMeans(n_clusters=8))
 multi_clustering_operator = flexible_clustering_tree.MultiClusteringOperator([clustering_operator_1st, clustering_operator_2nd])
 
 # run flexible clustering

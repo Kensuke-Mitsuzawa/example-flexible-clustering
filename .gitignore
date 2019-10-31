@@ -6,3 +6,5 @@ python_env/
 .DS_Store
 cluster_relation.tsv
 leaf_information.tsv
+swem/
+.ipynb_checkpoints/
